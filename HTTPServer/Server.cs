@@ -16,14 +16,17 @@ namespace HTTPServer
         public Server(int portNumber, string redirectionMatrixPath)
         {
             //TODO: call this.LoadRedirectionRules passing redirectionMatrixPath to it
-            //TODO: initialize this.serverSocket
             this.LoadRedirectionRules(redirectionMatrixPath);
-            this.serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            //TODO: initialize this.serverSocket
+            IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, portNumber);
 
+            this.serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            serverSocket.Bind(endPoint);
         }
 
         public void StartServer()
         {
+            Console.WriteLine("Start Listening...");
             // TODO: Listen to connections, with large backlog.
             serverSocket.Listen(100);
 
@@ -43,6 +46,7 @@ namespace HTTPServer
             // set client socket ReceiveTimeout = 0 to indicate an infinite time-out period
             Socket clientSocket = (Socket)obj;
             clientSocket.ReceiveTimeout = 0;
+            Console.WriteLine("Connection Accepted : {0}", clientSocket.RemoteEndPoint);
 
             // TODO: receive requests in while true until remote client closes the socket.
             while (true)
@@ -50,8 +54,13 @@ namespace HTTPServer
                 try
                 {
                     // TODO: Receive request
-                    byte[] data = new byte[1024];
-                    int receivedDataLength = clientSocket.Receive(data);
+                    byte[] receivedData = new byte[65536];
+                    int receivedDataLength = clientSocket.Receive(receivedData);
+                    //Console.WriteLine("Client Message Received : " + clientSocket.RemoteEndPoint);
+
+                    string requestString = Encoding.ASCII.GetString(receivedData, 0, receivedDataLength);
+                    //Console.WriteLine(requestString);
+
                     // TODO: break the while loop if receivedLen==0
                     if (receivedDataLength == 0)
                     {
@@ -59,12 +68,16 @@ namespace HTTPServer
                         break;
                     }
                     // TODO: Create a Request object using received request string
-                    Request clientRequest = new Request(Encoding.ASCII.GetString(data, 0, receivedDataLength));
+                    Console.WriteLine(requestString);
+                    Request clientRequest = new Request(requestString);
 
                     // TODO: Call HandleRequest Method that returns the response
                     Response serverResponse = HandleRequest(clientRequest);
-                    string responseStr = serverResponse.ToString();
-                    byte[] responseArr = Encoding.ASCII.GetBytes(responseStr);
+                    string res = serverResponse.ResponseString;
+                    Console.WriteLine(res);
+
+                    byte[] responseArr = Encoding.ASCII.GetBytes(res);
+
                     // TODO: Send Response back to client
                     clientSocket.Send(responseArr);
 
@@ -82,43 +95,75 @@ namespace HTTPServer
 
         Response HandleRequest(Request request)
         {
+
             string content;
             Response response;
+            StatusCode code;
             try
             {
+                //throw new Exception();
                 //TODO: check for bad request 
-                //TODO: map the relativeURI in request to get the physical path of the resource.
-                //TODO: check for redirect
-                //TODO: check file exists
-                //TODO: read the physical file
-                // Create OK response
-                if (request.ParseRequest())
+                if (!request.ParseRequest())
                 {
-                    Uri uri = new Uri(request.relativeURI);
-                    string filePath = uri.LocalPath;
-                    string redirectionPath = GetRedirectionPagePathIFExist(filePath);
-                    content = LoadDefaultPage(filePath);
-                    response = new Response(StatusCode.OK, "text/html", content, "");
+                    code = StatusCode.BadRequest;
+                    content = "< !DOCTYPE html >< html >< body >< h1 > 400 Bad Request</ h1 >< p > 400 Bad Request</ p ></ body ></ html >";
                 }
+                //TODO: map the relativeURI in request to get the physical path of the resource.
+                string[] name = request.relativeURI.Split('/');
+                string physicalPath = Configuration.RootPath + '\\' + name[1];
+
+                //TODO: check for redirect
+                for (int i = 0; i < Configuration.RedirectionRules.Count; i++)
+                {
+                    if ('/' + Configuration.RedirectionRules.Keys.ElementAt(i).ToString() == request.relativeURI)
+                    {
+                        code = StatusCode.Redirect;
+                        request.relativeURI = '/' + Configuration.RedirectionRules.Values.ElementAt(i).ToString();
+                        name[1] = Configuration.RedirectionRules.Values.ElementAt(i).ToString();
+
+                        physicalPath = Configuration.RootPath + '\\' + name[1];
+                        content = File.ReadAllText(physicalPath);
+                        string location = "http://localhost:1000/" + name[1];
+                        response = new Response(code, "text/html", content, location);
+                        return response;
+                    }
+                }
+
+                //TODO: check file exists
+                if (!File.Exists(physicalPath))
+                {
+                    physicalPath = Configuration.RootPath + '\\' + "NotFound.html";
+                    code = StatusCode.NotFound;
+                    content = File.ReadAllText(physicalPath);
+                }
+
+                //TODO: read the physical file
                 else
                 {
-                    response = new Response(StatusCode.BadRequest, "text/html", LoadDefaultPage(Configuration.BadRequestDefaultPageName), "");
+                    content = File.ReadAllText(physicalPath);
+                    code = StatusCode.OK;
                 }
+                // Create OK response
+                response = new Response(code, "text/html", content, physicalPath);
+                return response;
             }
             catch (Exception ex)
             {
                 // TODO: log exception using Logger class
                 // TODO: in case of exception, return Internal Server Error.
                 Logger.LogException(ex);
-                response = new Response(StatusCode.InternalServerError, "text/html", LoadDefaultPage(Configuration.InternalErrorDefaultPageName), "");
+                string physicalPath = Configuration.RootPath + '\\' + "InternalError.html";
+                code = StatusCode.InternalServerError;
+                content = File.ReadAllText(physicalPath);
+                response = new Response(code, "text/html", content, physicalPath);
+
+                return response;
             }
-            return response;
         }
 
         private string GetRedirectionPagePathIFExist(string relativePath)
         {
             // using Configuration.RedirectionRules return the redirected page path if exists else returns empty
-            LoadRedirectionRules(relativePath);
             foreach (KeyValuePair<string, string> dict in Configuration.RedirectionRules)
             {
                 if (dict.Key == relativePath)

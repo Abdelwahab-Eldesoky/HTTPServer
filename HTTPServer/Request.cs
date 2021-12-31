@@ -25,7 +25,7 @@ namespace HTTPServer
         string[] requestLines;
         RequestMethod method;
         public string relativeURI;
-        Dictionary<string, string> headerLines;
+        Dictionary<string, string> headerLines = new Dictionary<string, string>();
 
         public Dictionary<string, string> HeaderLines
         {
@@ -151,9 +151,13 @@ namespace HTTPServer
         {
             //throw new NotImplementedException();
 
-            String[] headerLinesArr = new String[100];
+            String[] headerLinesArr = new String[requestLines.Length - 2];
 
-            for (int i = 1; i < requestLines.Length; i++)
+            String[] temp;
+            String[] separator = new String[] { ": " };
+
+            for (
+                int i = 1; i < requestLines.Length; i++)
             {
                 if (requestLines[i] == "\r\n\r\n")
                 {
@@ -161,17 +165,10 @@ namespace HTTPServer
                 }
                 else
                 {
-                    headerLinesArr[i - 1] = requestLines[i];
+                    //headerLinesArr[i - 1] = requestLines[i];
+                    temp = requestLines[i].Split(separator, 10, StringSplitOptions.None);
+                    headerLines.Add(temp[0], temp[1]);
                 }
-            }
-
-
-            String[] temp = new String[2];
-            String[] separator = new String[] { ": " };
-            for (int i = 0; i < headerLinesArr.Length; i++)
-            {
-                temp = headerLinesArr[i].Split(separator, 10, StringSplitOptions.None);
-                headerLines.Add(temp[0], temp[1]);
             }
 
             if (headerLines.Count != headerLinesArr.Length)
